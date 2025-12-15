@@ -1,0 +1,399 @@
+---
+title: "BF528__FINAL_PROJECT_REPORT__Mohammad_Gharandouq"
+output:
+  html_document: default
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(magick)
+library(ggplot2)
+library(enrichR)
+```
+
+
+# Introduction
+
+Dendritic cell (DC) progenitors undergo extensive transcriptional reprogramming during differentiation to generate distinct DC subsets, yet the contribution of chromatin accessibility to these transitions remains incompletely understood. In “The histone deacetylase HDAC1 controls dendritic cell development and anti-tumor immunity,” the authors demonstrate that HDAC1 plays a critical role in DC development by regulating epigenetic and transcriptional programs. Genetic deletion of HDAC1 selectively disrupts pDC and cDC2 differentiation, while cDC1 development remains largely unaffected.
+
+Using ATAC-seq, the study shows that HDAC1 controls chromatin accessibility at key regulatory regions associated with transcription factors such as IRF4, IRF8, and SPIB, linking epigenetic regulation to DC lineage specification. These accessibility changes are accompanied by altered gene expression programs measured by RNA-seq, providing a mechanistic connection between chromatin state and transcriptional output.
+
+In this project, we reproduce a subset of the original study’s ATAC-seq and RNA-seq analyses, focusing specifically on the cDC1 and cDC2 populations. Differential chromatin accessibility was assessed using ATAC-seq, while differential gene expression was evaluated by reanalyzing the authors’ raw RNA-seq data with DESeq2. By reproducing figures that integrate chromatin accessibility and gene expression changes in cDC1 and cDC2 cells, this analysis aims to evaluate how HDAC1-dependent chromatin remodeling contributes to subset-specific regulatory programs. The Fastq files of both ATAC-seq and RNA-seq were downloaded from the following GEO accession code (GSE266584). 
+https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE266584
+
+# Methodology
+
+Raw single-end ATAC-seq FASTQ files were retrieved from public repositories using wget and processed using a fully reproducible workflow implemented in Nextflow v25.04.6.5954. All tools were run with default parameters unless otherwise specified. Initial quality assessment of raw single-end FASTQ files was performed using FastQC v0.12.1 to evaluate per-base sequence quality, GC content, and adapter contamination. Adapter trimming and quality filtering were conducted using Trimmomatic v0.39, removing Illumina adapter sequences and low-quality bases. A MultiQC v1.25 report was generated to aggregate quality control metrics, trimming statistics, and alignment summaries.
+
+Trimmed reads were aligned to the mouse reference genome (GRCm39) using Bowtie2 v2.5.4, with genome indices built from the reference FASTA file. Aligned reads were converted to BAM format, filtered to remove mitochondrial reads, sorted by genomic coordinates, and indexed using SAMtools v1.21. Alignment statistics were generated using samtools flagstat to assess mapping efficiency. Genome-wide chromatin accessibility signal tracks were generated using deepTools v3.5.5 bamCoverage, producing normalized bigWig files. Sample-level correlation analysis was performed using deepTools multiBigwigSummary, followed by plotCorrelation to generate Spearman correlation heatmaps.
+
+Accessible chromatin regions were identified using MACS3 v3.0.2, MACS3 peak calling was performed with model building disabled (--nomodel) and a fixed extension size to accommodate variable ATAC-seq fragment lengths. Peaks overlapping ENCODE blacklist regions were removed using BEDtools v2.31.1. ATAC-seq library quality was assessed by calculating the fraction of reads in peaks (FRiP) for each sample using BEDtools and SAMtools. Differential chromatin accessibility between wild-type and HDAC1 knockout samples was assessed separately for cDC1 and cDC2 subsets using DiffBind with the edgeR statistical framework. Differential peaks were classified as gained or lost accessibility in knockout samples based on fold-change direction and a significance threshold of p < 0.01 as reported in the original paper.
+
+Chromatin accessibility patterns at differentially accessible regions were visualized by aggregating ATAC-seq signal around peak centers using deepTools computeMatrix in reference-point mode with ±1.5 kb flanking regions, followed by plotHeatmap and plotProfile. Transcription start site (TSS) enrichment was assessed as a quality control measure using deepTools computeMatrix centered on annotated TSSs with ±2 kb flanking regions and visualized using plotProfile.
+
+RNA-sequencing data for cDC1 and cDC2 subsets were analyzed using DESeq2. Raw gene-level count matrices were filtered for low expression, and differential expression between wild-type and knockout conditions was assessed using a negative binomial model with Benjamini–Hochberg correction. Resulting RNA-seq log2 fold changes were integrated with gene-associated ATAC-seq accessibility changes to assess concordance between chromatin accessibility and transcriptional regulation.
+
+De novo motif enrichment analysis was performed on differential ATAC-seq peak sets using HOMER findMotifsGenome.pl, scanning ±200 bp around peak centers to identify enriched transcription factor binding motifs.
+
+# Results 
+
+# Sequencing quality control results
+
+Quality control analysis of raw sequencing data indicated that all ATAC-seq libraries were of high quality. FastQC metrics summarized in the MultiQC report showed consistently high per-base sequence quality across all 8 samples, with mean Phred scores >30 across all base positions. Trimmomatic processing retained >95% of raw reads, with minimal adapter contamination detected. GC content was uniform across samples at approximately 47-49%, consistent with mammalian genomic DNA. Sequence duplication levels were moderately elevated as expected for ATAC-seq due to low input DNA and inherent PCR amplification. Per-sequence quality scores showed the majority of reads with mean quality >28, and no samples required exclusion based on raw sequencing quality.
+
+# Alignment statistics
+
+Alignment statistics from samtools flagstat revealed successful mapping across all samples. Samples showed high total read counts ranging from 22-34 million reads, with consistently low drop rates of 0.4-0.5%, indicating that the vast majority of reads aligned successfully to the reference genome. Duplicate rates ranged from 15-25%, which is acceptable for ATAC-seq given the low input DNA and necessary PCR amplification steps. After filtering for mitochondrial reads, 19.6-28.6 million high-quality reads per sample were retained for peak calling. These alignment metrics indicate robust library quality, sufficient sequencing depth for detecting accessible chromatin regions and identify differentially accessible peaks between conditions, while the comparable coverage across biological replicates ensures reliable differential accessibility testing. The combination of high-quality alignments and adequate sequencing depth supports robust peak calling and confident identification of condition-specific chromatin accessibility changes.
+
+# Two ATAC-seq specific QC metrics
+
+# 1. TSS enrichment score
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+
+# Read in your TSS enrichment data
+cdc1 <- read.delim("cDC1_tss_enrichment.txt")
+cdc2 <- read.delim("cDC2_tss_enrichment.txt")
+
+# Combine data
+combined <- rbind(
+  cdc1 %>% mutate(CellType = "cDC1"),
+  cdc2 %>% mutate(CellType = "cDC2")
+)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Clean up sample names and add condition info
+table_data <- combined %>%
+  filter(!grepl("average", Sample)) %>%
+  mutate(
+    Condition = case_when(
+      grepl("sample1|sample2", Sample) ~ "WT",
+      grepl("sample3|sample4", Sample) ~ "KO",
+      TRUE ~ "Unknown"
+    ),
+    Replicate = case_when(
+      grepl("sample1|sample3", Sample) ~ "1",
+      grepl("sample2|sample4", Sample) ~ "2",
+      TRUE ~ "Unknown"
+    ),
+    Sample_ID = paste0(CellType, "_", Condition, "_", Replicate)
+  ) %>%
+  dplyr::select(Sample_ID, CellType, Condition, Replicate, 
+         TSS_Enrichment, TSS_Signal, Background_Signal) %>%
+  arrange(CellType, Condition, Replicate)
+
+# Create clean table with formatted column names
+tss_table <- data.frame(
+  `Sample` = table_data$Sample_ID,
+  `TSS Enrichment` = round(table_data$TSS_Enrichment, 2),
+  `TSS Signal` = round(table_data$TSS_Signal, 2),
+  `Background Signal` = round(table_data$Background_Signal, 2),
+  check.names = FALSE
+)
+
+# Display as a table
+kable(tss_table, format = "markdown", 
+      caption = "TSS Enrichment Scores for ATAC-seq Samples")
+cat("\n")
+cat("Note: TSS Enrichment >10 indicates excellent quality ATAC-seq data\n")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC1_TSS_plot <- image_read("cDC1_matrix_singal_coverage.png")
+plot(cDC1_TSS_plot)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC2_TSS_plot <- image_read("cDC2_matrix_singal_coverage.png")
+plot(cDC2_TSS_plot)
+```
+
+
+The TSS (Transcription Start Site) enrichment score measures the ratio of ATAC-seq signal at transcription start sites compared to flanking background regions, serving as a proxy for signal-to-noise ratio and the successful targeting of functional regulatory elements. Our data showed excellent TSS enrichment scores ranging from 12.2 to 15.5-fold enrichment, with mean scores of 14.4x for cDC1 and 13.4x for cDC2. These values exceed the threshold for excellent quality ATAC-seq data (>10x), and even surpass the "good quality" benchmark (>7x) by a considerable margin. High TSS enrichment indicates that our ATAC-seq successfully captured nucleosome-depleted regions at active promoters. The sharp peaks observed at TSS regions (with signal intensities of 25-32 versus background of 1.8-2.1) demonstrate robust enrichment of accessible chromatin at these critical regulatory sites. This is particularly important because TSSs are known to be nucleosome-free regions where transcription machinery assembles, and their strong signal in ATAC-seq validates that the assay is detecting biologically meaningful open chromatin rather than technical artifacts. The consistency across all samples and replicates confirms that the original experiment's library preparation and sequencing were of high quality, and that our data processing pipeline successfully reproduced chromatin accessibility maps suitable for downstream biological interpretation.
+
+# 2. FRiP (Fraction of Reads in Peaks)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Read FRiP data
+frip_data <- read.csv("FRiP_summary.csv")
+
+# Parse sample information
+table_data_2 <- frip_data %>%
+  mutate(
+    CellType = case_when(
+      grepl("cDC1", Sample) ~ "cDC1",
+      grepl("cDC2", Sample) ~ "cDC2",
+      TRUE ~ "Unknown"
+    ),
+    Condition = case_when(
+      grepl("WT", Sample) ~ "WT",
+      grepl("KO", Sample) ~ "KO",
+      TRUE ~ "Unknown"
+    ),
+    Replicate = case_when(
+      grepl("_1$", Sample) ~ "1",
+      grepl("_2$", Sample) ~ "2",
+      TRUE ~ "Unknown"
+    ),
+    FRiP_Percent = FRiP * 100,  # Convert to percentage
+    Total_reads_M = Total_reads / 1e6,  # Convert to millions
+    Reads_in_peaks_M = Reads_in_peaks / 1e6
+  ) %>%
+  dplyr::select(Sample, CellType, Condition, Replicate, 
+         Total_reads_M, Reads_in_peaks_M, FRiP_Percent) %>%
+  arrange(CellType, Condition, Replicate)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Create clean FRiP table
+frip_table <- data.frame(
+  `Sample` = table_data_2$Sample,
+  `Total Reads (M)` = round(table_data_2$Total_reads_M, 2),
+  `Reads in Peaks (M)` = round(table_data_2$Reads_in_peaks_M, 2),
+  `FRiP (%)` = round(table_data_2$FRiP_Percent, 2),
+  check.names = FALSE
+)
+
+# Print table
+kable(
+  frip_table,
+  format = "markdown",
+  caption = "FRiP Quality Metrics for ATAC-seq Samples"
+ )
+
+cat("\n")
+cat("Note: FRiP >20% indicates good quality ATAC-seq data\n")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+frip_mutate <- frip_data %>%
+  mutate(
+    cell_type = str_extract(Sample, "cDC[12]"),
+    condition = str_extract(Sample, "WT|KO")
+  )
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(frip_mutate, aes(x = Sample, y = FRiP, fill = condition)) +
+  geom_col(width = 0.7) +
+  facet_wrap(~ cell_type, scales = "free_x") +
+  scale_fill_manual(values = c("WT" = "#4DAF4A", "KO" = "#E41A1C")) +
+  labs(
+    title = "ATAC-seq FRiP per sample",
+    y = "FRiP (Fraction of Reads in Peaks)",
+    x = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+
+```
+
+
+
+The Fraction of Reads in Peaks (FRiP) is a fundamental quality metric that measures what proportion of sequenced reads fall within identified peak regions. In our ATAC-seq experiment, FRiP scores ranged from 19.9% to 27.3% across all samples, with a mean of approximately 23%. These values indicate good quality data, as the standard threshold for acceptable ATAC-seq is FRiP >20%. Seven out of eight samples exceeded this threshold, with only one sample (ATAC_cDC1_WT_2 at 19.9%) falling marginally below. A high FRiP score demonstrates that the ATAC-seq library preparation successfully enriched for accessible chromatin regions rather than sequencing random genomic background. This means the transposase efficiently targeted open chromatin sites, and the subsequent size selection and amplification steps preserved this enrichment. The consistency of FRiP scores across replicates (SD ~3-4%) also indicates good technical reproducibility. FRiP scores below 10% would indicate poor enrichment, suggesting potential experimental issues such as inadequate library preparation, excessive PCR amplification, or transposition problems. The observed FRiP values demonstrate that the published dataset is of high quality, with the vast majority of reads mapping to biologically relevant open chromatin regions rather than genomic background.
+
+# Report how many differentially accessible regions your pipeline discovered in each of the two conditions.
+
+I have taken the values from Diffbind analyses results of cDC1 and cDC2.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+diff_results <- data.frame(
+  CellType = c("cDC1", "cDC2"),
+  Total_Significant = c(1680, 759),
+    Gained_in_KO = c(1291, 534),
+  Lost_in_KO = c(389, 225)
+)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Create clean differential accessibility table
+diff_table <- data.frame(
+  `Cell Type` = diff_results$CellType,
+  `Total DARs (p < 0.01)` = diff_results$Total_Significant,
+  `Gained in KO` = diff_results$Gained_in_KO,
+  `Lost in KO` = diff_results$Lost_in_KO,
+  check.names = FALSE
+)
+
+# Print table
+kable(
+  diff_table,
+  format = "markdown",
+  caption = "Summary of Differentially Accessible Regions Identified by DiffBind"
+)
+```
+The differential accessibility analysis identified 1,680 significantly differentially accessible regions in cDC1 cells (p < 0.01), with 1,291 regions showing increased accessibility in the KO condition and 389 regions showing decreased accessibility in the KO condition.
+
+In cDC2 cells, the analysis identified 759 significantly differentially accessible regions (p < 0.01), with 534 regions showing increased accessibility in the KO condition and 225 regions showing decreased accessibility in the KO condition.
+
+While the absolute number of differentially accessible regions identified in this analysis is slightly lower than reported in the original study (1,680 vs. 1,863 DARs for cDC1 and 759 vs. 843 DARs for cDC2 at p < 0.01), the overall magnitude, directionality, and chromatin accessibility patterns are highly consistent. These minor differences are expected given independent reprocessing of raw sequencing data, differences in analysis parameters, and the use of a different reference genome build (mm39 in this study versus mm10 in the original publication).
+
+# A figure showing the enrichment results of the differentially accessible regions:
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Read your gene list from the text file
+gene_list_cDC1 <- readLines("cDC1_sig_genes_all.txt")
+gene_list_cDC2 <- readLines("cDC2_sig_genes_all.txt")
+
+# Check how many genes
+cat("Number of genes cDC1:", length(gene_list_cDC1), "\n")
+cat("Number of genes cDC2:", length(gene_list_cDC2), "\n")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Check available databases (optional)
+dbs <- listEnrichrDbs()
+
+# Run enrichment on common databases
+dbs_to_use <- c("GO_Biological_Process_2025", 
+                "GO_Molecular_Function_2025",
+                "KEGG_2021_Human",
+                "WikiPathway_2024_Human",
+                "Reactome_Pathways_2024")
+
+enriched <- enrichr(gene_list_cDC1, dbs_to_use)
+
+# Plot top results
+plotEnrich(enriched$GO_Biological_Process_2025, showTerms = 20, numChar = 40, title = "GO BP - cDC1 Differential Peaks")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Check available databases (optional)
+dbs <- listEnrichrDbs()
+
+# Run enrichment on common databases
+dbs_to_use <- c("GO_Biological_Process_2025", 
+                "GO_Molecular_Function_2025",
+                "KEGG_2021_Human",
+                "WikiPathway_2024_Human",
+                "Reactome_Pathways_2024")
+
+enriched <- enrichr(gene_list_cDC2, dbs_to_use)
+
+# Plot top results
+plotEnrich(enriched$GO_Biological_Process_2025, showTerms = 20, numChar = 40, title = "GO BP - cDC2 Differential Peaks")
+```
+# A few sentences describing what the enrichment reveals.
+
+Gene Ontology enrichment analysis of genes associated with differentially accessible regions in cDC2 cells revealed significant enrichment for developmental and signaling pathways. The top enriched biological processes included response to cytokine signaling (GO:0034097, p=0.0003), axonogenesis (GO:0007409, p=0.001), and axon guidance (GO:0007411, p=0.003). Additional enrichment was observed for intracellular signaling cassette (GO:0014767, p=0.0004) and Wnt signaling pathway (GO:0060070, p=0.003). These results suggest that HDAC1 deletion in cDC2 cells affects chromatin accessibility at regulatory regions controlling cell differentiation, neural development, and immune signaling pathways, consistent with the observed developmental defects in cDC2 differentiation.
+
+# A figure showing the motif enrichment results from the differential peaks:
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC1_WT_motifs <- image_read("cDC1_WT_motifs.png")
+plot(cDC1_WT_motifs)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC1_KO_motifs <- image_read("cDC1_KO_motifs.png")
+plot(cDC1_KO_motifs)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC2_WT_motifs <- image_read("cDC2_WT_motifs.png")
+plot(cDC2_WT_motifs)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC2_KO_motifs <- image_read("cDC2_KO_motifs.png")
+plot(cDC2_KO_motifs)
+```
+
+# A few sentences describing the key motifs found:
+
+Motif enrichment analysis revealed that PU.1 was the most significantly enriched transcription factor binding motif across all conditions, consistently ranking first in cDC1_WT, cDC1_KO, cDC2_WT, and cDC2_KO samples (p-values ranging from 1e-5126 to 1e-7657). SPIB, another ETS family member, consistently ranked second across all four conditions, followed by ELF family transcription factors (ELF3, ELF4, ELF5) that showed similar enrichment patterns. These findings directly validate the paper's demonstration that HDAC1 regulates chromatin accessibility at PU.1 and SPIB binding sites. Notable differences between conditions include the dramatic shift of CTCF motifs in cDC2 cells (CTCF ranks 5th in cDC2_WT but jumps to 1st in cDC2_KO), suggesting major alterations in three-dimensional chromatin loop architecture following HDAC1 deletion. Similarly, in cDC1_KO, ELF4 motifs show increased prominence (rank 3) compared to cDC1_WT (rank 4), while IRF8 motifs appear consistently enriched in cDC1 samples (rank 7-8), consistent with IRF8's established role as a master regulator of cDC1 specification. The consistent top-ranking of PU.1 and SPIB motifs, combined with enrichment of IRF family transcription factors, confirms that differential accessibility occurs at functionally relevant regulatory regions controlling dendritic cell identity rather than at random genomic locations.
+
+# Figures 6A-F reoriduction results:
+
+# 1. Figure 6A&B:
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC1_matrix_heatmap <- image_read("cDC1_matrix_heatmap.png")
+plot(cDC1_matrix_heatmap)
+cDC2_matrix_heatmap <- image_read("cDC2_matrix_heatmap.png")
+plot(cDC2_matrix_heatmap)
+```
+
+# Comment for Figure 6A&B:
+
+Figure 6A: cDC1 differential accessibility heatmap
+
+ATAC-seq analysis of cDC1 cells revealed widespread changes in chromatin accessibility upon HDAC1 deletion. A total of 1,680 differentially accessible regions (DARs) were identified (p < 0.01), with the majority showing increased accessibility in the knockout condition. Heatmap and aggregate profile plots demonstrate strong enrichment of ATAC signal at regions gained in HDAC1-deficient cDC1s, while regions classified as lost display higher accessibility in wild-type samples. These patterns closely mirror those reported in the original study, supporting a role for HDAC1 in restraining chromatin accessibility in cDC1s.
+
+Figure 6B: cDC2 differential accessibility heatmap
+
+In cDC2 cells, ATAC-seq identified 759 differentially accessible regions (p < 0.01), again with more regions gaining accessibility upon HDAC1 deletion than losing accessibility. The heatmaps show clear genotype-dependent accessibility differences, with gained regions exhibiting elevated ATAC signal in knockout samples and lost regions enriched in wild-type samples. Although fewer DARs were detected compared to cDC1s, the overall accessibility patterns and direction of change are consistent with those described in the original publication.
+
+While the absolute number of differentially accessible regions identified in this analysis is slightly lower than reported in the original study (1,680 vs. 1,863 DARs for cDC1 and 759 vs. 843 DARs for cDC2 at p < 0.01), the overall magnitude, directionality, and chromatin accessibility patterns are highly consistent. These minor differences are expected given independent reprocessing of raw sequencing data, differences in analysis parameters, and the use of a different reference genome build (mm39 in this study versus mm10 in the original publication).
+
+# Figure 6C&E:
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC1_ATAC_RNA_correlation <- image_read("cDC1_ATAC_RNA_correlation.png")
+plot(cDC1_ATAC_RNA_correlation)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cDC2_ATAC_RNA_correlation <- image_read("cDC2_ATAC_RNA_correlation.png")
+plot(cDC2_ATAC_RNA_correlation)
+```
+
+# Comment for Figure 6C&E:
+
+Correlation analysis between chromatin accessibility and gene expression revealed a strong concordance between ATAC-seq and RNA-seq changes following HDAC1 deletion. In cDC1 cells, genes such as Maged1 and Nectin2 exhibited simultaneous increases in chromatin accessibility and transcription, indicating direct regulatory effects. In cDC2 cells, coordinated increases were observed for Spib, Nectin2, Csf3r, and Celf4, consistent with the original study. These results support a model in which HDAC1 regulates dendritic cell identity by modulating accessibility at regulatory regions of key lineage-defining genes.
+
+ATAC-seq differential accessibility was quantified using DiffBind, which produces log2 fold-change estimates for chromatin accessibility between conditions. Peaks were annotated to genes using ChIPseeker to obtain gene-level ATAC-seq measurements. RNA-seq count data were downloaded from GEO and analyzed using DESeq2 to generate gene-level log2 fold-change and adjusted p-values.
+
+Gene-level ATAC-seq and RNA-seq results were then integrated by matching gene symbols, and log2 fold-changes from both assays were visualized jointly to assess concordance between changes in chromatin accessibility and transcription. Genes were highlighted if they were statistically significant in either dataset, defined as padj < 0.05 for RNA-seq or p-value < 0.01 for ATAC-seq, consistent with thresholds used in the original study.
+
+# Figure 6D&F
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+maged1 <- image_read("igv_maged1.png")
+plot(maged1)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+spib <- image_read("igv_spib.png")
+plot(spib)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+gapdh <- image_read("igv_gapdh.png")
+plot(gapdh)
+```
+
+# Comment for Figure 6 D&F:
+
+Genome browser visualization further validated the ATAC-seq and RNA-seq integration results. At the Maged1 locus, increased chromatin accessibility was observed in HDAC1-deficient cDC1 samples, consistent with elevated gene expression. At the Spib locus, promoter accessibility was absent in cDC1 but selectively increased in cDC2 cells upon HDAC1 deletion, recapitulating the population-specific regulation described in the original study. In contrast, the housekeeping gene Gapdh showed stable accessibility across all conditions, confirming that observed changes were locus-specific rather than global shifts in chromatin accessibility.
+
+ATAC-seq signal tracks were visualized in IGV using identical genomic loci and fixed signal ranges (0–70 and 0–100) as in the original publication, preventing scaling artifacts and allowing direct comparison of accessibility patterns between genotypes.
+
+# Comment on the success of the reproductions of the panels from the original publication. Do you think the results are consistent with the original publication? What do your results show that is different from the original publication?
+
+Overall, the reproduced analyses are highly consistent with the original publication. The ATAC-seq heatmaps of gained and lost chromatin accessibility in both cDC1 and cDC2 populations recapitulate the key qualitative patterns reported in the study, with HDAC1 loss predominantly associated with increased chromatin accessibility. Similarly, integration of ATAC-seq and RNA-seq data revealed coordinated changes in accessibility and gene expression for the same biologically relevant genes highlighted in the original work, including Maged1 in cDC1 cells and Spib, Nectin2, Csf3r, and Celf4 in cDC2 cells. Genome browser visualizations further confirmed locus-specific accessibility changes at these genes, using identical genomic regions and signal scaling ranges to the published figures.
+
+Quantitatively, the total number of differentially accessible regions identified in this reproduction was modestly lower than reported in the original study; however, the relative proportions of gained versus lost accessibility and the biological conclusions remain consistent. These minor discrepancies are likely attributable to differences in reference genome version (mm39 versus mm10), peak calling and filtering parameters, and independent pipeline implementation. Importantly, none of these differences alter the central conclusions of the study. Together, these results demonstrate a successful and biologically faithful reproduction of the original findings while highlighting the expected variability introduced by updated genome annotations and computational workflows.
+
+# Extra: Correlation plot
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+correlation_plot <- image_read("correlation_plot.png")
+plot(correlation_plot)
+```
+
+# Comment:
+
+Spearman correlation analysis of ATAC-seq signal across all samples showed high concordance between biological replicates and clear clustering by cell type. Replicates within each population (cDC1 and cDC2) exhibited strong correlations (rho ≈ 0.93–1.00 for cDC1 and rho ≈ 0.86–0.90 for cDC2), indicating high technical and biological reproducibility. In contrast, correlations between cDC1 and cDC2 samples were consistently lower, reflecting distinct chromatin accessibility landscapes between the two dendritic cell subsets, suggesting that HDAC1 loss does not globally alter chromatin accessibility.
+
+```{r}
+sessioninfo::session_info()
+```

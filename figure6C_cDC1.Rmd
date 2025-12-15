@@ -1,0 +1,139 @@
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+```
+
+```{r}
+atac_data <- read_csv("cDC1_diffbind_ALL_annotated_unique_genes.csv") %>% dplyr::select(gene, log2FoldChange_ATAC, pvalue_ATAC = pvalue, peak_type)
+```
+
+```{r}
+rna_data <- read_csv("cDC1_DESeq2_significant.csv") %>% dplyr::select(gene, log2FoldChange_RNA = log2FoldChange, padj_RNA = padj)
+```
+```{r}
+sum(rna_data$gene %in% atac_data$gene)
+
+```
+```{r}
+summary(atac_data$log2FoldChange_ATAC)
+```
+```{r}
+summary(rna_data$log2FoldChange_RNA)
+```
+
+```{r}
+# Merge
+merged <- inner_join(rna_data, atac_data, by = "gene")
+```
+
+```{r}
+merged <- merged %>%
+  mutate(
+    quadrant = case_when(
+      log2FoldChange_RNA > 0 & log2FoldChange_ATAC > 0 ~ "UpUp",
+      log2FoldChange_RNA < 0 & log2FoldChange_ATAC < 0 ~ "DownDown",
+      log2FoldChange_RNA > 0 & log2FoldChange_ATAC < 0 ~ "UpDown",
+      log2FoldChange_RNA < 0 & log2FoldChange_ATAC > 0 ~ "DownUp",
+      TRUE ~ "Neutral"
+    )
+  )
+```
+
+```{r}
+merged <- merged %>%
+  mutate(
+    sig_rna  = padj_RNA < 0.05,
+    sig_atac = pvalue_ATAC < 0.01
+  )
+```
+
+```{r}
+merged <- merged %>%
+  mutate(
+    highlight = ifelse(
+      is.na(padj_RNA),
+      FALSE,
+  padj_RNA < 0.05 | pvalue_ATAC < 0.01)
+  )
+```
+
+```{r}
+table(merged$highlight)
+```
+```{r}
+table(is.na(merged$padj_RNA))
+table(merged$highlight)
+```
+
+```{r}
+# Summary
+cat("\n=== Merged ATAC–RNA Results ===\n")
+cat("Total genes:", nrow(merged), "\n")
+cat("Highlighted (RNA sig & concordant):", sum(merged$highlight), "\n")
+cat("Up–Up:", sum(merged$highlight & merged$quadrant == "UpUp"), "\n")
+cat("Down–Down:", sum(merged$highlight & merged$quadrant == "DownDown"), "\n")
+```
+```{r}
+label_genes <- merged %>%
+  filter(gene %in% c("Nectin2", "Il13ra1", "Maged1", "Csf3r", "Celf4", "Spib", "Irf8", "Susd2"))
+```
+
+```{r}
+# Create the plot
+
+ggplot(merged, aes(x = log2FoldChange_RNA, y = log2FoldChange_ATAC)) +
+
+  # Background
+  geom_point(color = "gray75", alpha = 0.5, size = 1) +
+
+  # Highlighted genes
+  geom_point(
+    data = merged %>% filter(highlight),
+    aes(color = quadrant),
+    size = 1.5
+  ) +
+
+  # Nectin2 point (larger)
+  geom_point(
+    data = label_genes,
+    color = "black",
+    size = 3
+  ) +
+
+  # Nectin2 label
+  geom_text_repel(
+    data = label_genes,
+    aes(label = gene),
+    size = 4,
+    box.padding = 0.3,
+    point.padding = 0.3,
+    max.overlaps = Inf
+  ) +
+
+  scale_color_manual(values = c("UpUp" = "red", "DownDown" = "blue")) +
+
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+
+  labs(x = "log2FoldChange RNA",
+       y = "log2FoldChange ATAC",
+       title = "cDC1") +
+
+  theme_classic() +
+  theme(legend.position = "none")
+
+
+```
+```{r}
+ggsave("cDC1_ATAC_RNA_correlation.png", width = 8, height = 6)
+```
+
+
+```{r}
+# Check a known gene that should be concordant
+merged %>% 
+  filter(gene %in% c("Maged1", "Tpm2")) %>%
+  dplyr::select(gene, log2FoldChange_RNA, log2FoldChange_ATAC, padj_RNA, pvalue_ATAC)
+```

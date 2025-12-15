@@ -1,0 +1,245 @@
+---
+title: "diffbind"
+output: html_document
+---
+
+```{r}
+#BiocManager::install('DiffBind')
+#BiocManager::install('rtracklater')
+library(DiffBind)
+library(rtracklayer)
+```
+
+
+```{r}
+cDC2 <- dba(sampleSheet="cDC2_diffbind.csv")
+```
+
+
+```{r}
+cDC2 <- dba.count(cDC2)
+```
+
+
+```{r}
+cDC2 <- dba.contrast(cDC2, categories=DBA_CONDITION, minMembers=2)
+```
+
+
+```{r}
+cDC2 <- dba.analyze(cDC2, method=DBA_EDGER)
+```
+
+```{r}
+cDC2.DB <- dba.report(cDC2, method=DBA_EDGER)
+```
+
+```{r}
+sig_results <- dba.report(cDC2, method=DBA_EDGER, th=0.01, bUsePval=TRUE)
+```
+
+```{r}
+sig_sorted <- sig_results[order(sig_results$Fold, decreasing=TRUE),]
+
+# After getting significant results
+cat("\n=== cDC2 Differential Accessibility Results ===\n")
+cat("Total significant peaks (p<0.01):", length(sig_sorted), "\n")
+cat("Gained accessibility in KO (Fold > 0):", sum(sig_sorted$Fold > 0), "\n")
+cat("Lost accessibility in KO (Fold < 0):", sum(sig_sorted$Fold < 0), "\n")
+```
+```{r}
+# Separate and label peaks
+# Separate gained and lost peaks
+gained <- sig_sorted[sig_sorted$Fold > 0]  # KO has MORE accessibility
+lost <- sig_sorted[sig_sorted$Fold < 0]    # KO has LESS accessibility
+```
+
+```{r}
+# Export separately
+export.bed(gained, "cDC2_gained_accessibility.bed")
+export.bed(lost, "cDC2_lost_accessibility.bed")
+```
+
+```{r}
+# Create a combined file with labels
+gained_df <- as.data.frame(gained)
+gained_df$peak_type <- "Gain"
+
+lost_df <- as.data.frame(lost)
+lost_df$peak_type <- "Loss"
+
+# Combine them (Loss first, then Gain - like the figure)
+combined <- rbind(lost_df, gained_df)
+```
+
+```{r}
+# Export as BED with name column indicating type
+combined_bed <- combined[, c("seqnames", "start", "end", "peak_type")]
+write.table(combined_bed, "cDC2_significant_peaks_labeled.bed", 
+            quote=FALSE, sep="\t", row.names=FALSE, col.names=FALSE)
+```
+
+```{r}
+cat("\nExported files:\n")
+cat("- cDC2_gained_accessibility.bed:", length(gained), "peaks\n")
+cat("- cDC2_lost_accessibility.bed:", length(lost), "peaks\n")
+cat("- cDC2_significant_peaks_labeled.bed: combined file\n")
+```
+
+```{r}
+export.bed(sig_sorted, "cDC2_significant_peaks_sorted.bed")
+```
+
+```{r}
+# Load annotation libraries
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm39.refGene)
+library(org.Mm.eg.db)
+library(tidyverse)
+```
+
+```{r}
+# Get ALL results (significant + non-significant) for RNA integration
+all_results <- dba.report(cDC2, method=DBA_EDGER, th=1, bUsePval=FALSE)
+
+cat("\n=== ALL Peaks Summary ===\n")
+cat("Total peaks analyzed:", length(all_results), "\n")
+cat("Significant peaks (p<0.01):", sum(all_results$`p-value` < 0.01, na.rm=TRUE), "\n")
+cat("Non-significant peaks:", sum(all_results$`p-value` >= 0.01, na.rm=TRUE), "\n")
+```
+
+```{r}
+# Annotate ALL peaks with ChIPseeker
+txdb <- TxDb.Mmusculus.UCSC.mm39.refGene
+
+annotated_all <- annotatePeak(
+  all_results, 
+  TxDb = txdb,
+  annoDb = "org.Mm.eg.db",
+  tssRegion = c(-3000, 3000),
+  verbose = TRUE
+)
+
+cat("\nAnnotation complete!\n")
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+colnames(as.data.frame(annotated_all))
+```
+
+```{r}
+# Convert annotated results to dataframe
+peaks_all_df <- as.data.frame(annotated_all) %>%
+  mutate(
+    peak_type = ifelse(Fold > 0, "Gain", "Loss"),
+    log2FoldChange_ATAC = Fold
+  ) %>%
+  dplyr::select(
+    seqnames, start, end, width, strand,
+    gene = SYMBOL,
+    log2FoldChange_ATAC,
+    FDR_ATAC = FDR,
+    pvalue = p.value,
+    peak_type,
+    distanceToTSS,
+    annotation,
+    Conc, Conc_WT, Conc_KO
+  )
+
+# Summary
+cat("\n=== Annotation Summary (ALL peaks) ===\n")
+cat("Total peaks:", nrow(peaks_all_df), "\n")
+cat("Peaks with gene annotation:", sum(!is.na(peaks_all_df$gene)), "\n")
+cat("Peaks without gene:", sum(is.na(peaks_all_df$gene)), "\n")
+```
+
+```{r}
+# For genes with multiple peaks, keep the one closest to TSS
+peaks_for_rna <- peaks_all_df %>%
+  filter(!is.na(gene) & gene != "") %>%
+  group_by(gene) %>%
+  arrange(abs(distanceToTSS)) %>%
+  dplyr::slice(1) %>%
+  ungroup()
+
+cat("\n=== Unique Genes ===\n")
+cat("Unique genes with peaks:", nrow(peaks_for_rna), "\n")
+```
+
+```{r}
+# Save ALL annotated peaks (with duplicates for genes with multiple peaks)
+write.csv(peaks_all_df, "cDC2_diffbind_ALL_annotated.csv", row.names = FALSE)
+
+# Save unique genes only (for RNA-seq integration)
+write.csv(peaks_for_rna, "cDC2_diffbind_ALL_annotated_unique_genes.csv", row.names = FALSE)
+
+cat("\nExported:\n")
+cat("- cDC2_diffbind_ALL_annotated.csv (all peaks, includes genes with multiple peaks)\n")
+cat("- cDC2_diffbind_ALL_annotated_unique_genes.csv (one peak per gene, for RNA integration)\n")
+```
+
+```{r}
+# Also annotate just the significant peaks (for reference)
+annotated_sig <- annotatePeak(
+  sig_sorted, 
+  TxDb = txdb,
+  annoDb = "org.Mm.eg.db",
+  tssRegion = c(-3000, 3000),
+  verbose = TRUE
+)
+
+peaks_sig_df <- as.data.frame(annotated_sig) %>%
+  mutate(
+    peak_type = ifelse(Fold > 0, "Gain", "Loss"),
+    log2FoldChange_ATAC = Fold
+  ) %>%
+  dplyr::select(
+    seqnames, start, end,
+    gene = SYMBOL,
+    log2FoldChange_ATAC,
+    FDR_ATAC = FDR,
+    pvalue = `p.value`,
+    peak_type,
+    distanceToTSS,
+    annotation
+  )
+
+```
+
+
+```{r}
+
+write.csv(peaks_sig_df, "cDC2_diffbind_significant_annotated.csv", row.names = FALSE)
+
+cat("- cDC2_diffbind_significant_annotated.csv (only significant peaks)\n")
+```
+
+```{r}
+# Read your existing ChIPseeker results
+sig_peaks <- read.csv("cDC2_diffbind_significant_annotated.csv")
+
+# Extract unique genes for all significant peaks
+all_genes <- unique(sig_peaks$gene[!is.na(sig_peaks$gene) & sig_peaks$gene != ""])
+
+# Or separate by gained/lost
+gained_genes <- unique(sig_peaks$gene[sig_peaks$peak_type == "Gain" & 
+                                       !is.na(sig_peaks$gene) & 
+                                       sig_peaks$gene != ""])
+
+lost_genes <- unique(sig_peaks$gene[sig_peaks$peak_type == "Loss" & 
+                                     !is.na(sig_peaks$gene) & 
+                                     sig_peaks$gene != ""])
+
+# Export
+write.table(all_genes, "cDC2_sig_genes_all.txt", 
+            quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(gained_genes, "cDC2_gained_genes.txt", 
+            quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(lost_genes, "cDC2_lost_genes.txt", 
+            quote=FALSE, row.names=FALSE, col.names=FALSE)
+```
+

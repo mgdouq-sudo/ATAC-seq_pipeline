@@ -1,0 +1,73 @@
+---
+title: "FRiP_summary"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+frip <- read_csv("results/frip/FRiP_summary.csv")
+frip
+```
+
+```{r}
+frip_mutate <- frip %>%
+  mutate(
+    cell_type = str_extract(Sample, "cDC[12]"),
+    condition = str_extract(Sample, "WT|KO")
+  )
+
+frip_mutate
+```
+
+
+```{r}
+ggplot(frip_mutate, aes(x = Sample, y = FRiP, fill = condition)) +
+  geom_col(width = 0.7) +
+  facet_wrap(~ cell_type, scales = "free_x") +
+  scale_fill_manual(values = c("WT" = "#4DAF4A", "KO" = "#E41A1C")) +
+  labs(
+    title = "ATAC-seq FRiP per sample",
+    y = "FRiP (Fraction of Reads in Peaks)",
+    x = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+
+```
+```{r}
+frip_summary <- frip_mutate %>%
+  group_by(cell_type, condition) %>%
+  summarise(
+    mean_FRiP = mean(FRiP),
+    sd_FRiP = sd(FRiP),
+    .groups = "drop"
+  )
+
+frip_summary
+```
+
+```{r}
+ggplot(frip_summary, aes(x = condition, y = mean_FRiP, fill = condition)) +
+  geom_col(width = 0.6) +
+  geom_errorbar(
+    aes(ymin = mean_FRiP - sd_FRiP, ymax = mean_FRiP + sd_FRiP),
+    width = 0.2
+  ) +
+  facet_wrap(~ cell_type) +
+  scale_fill_manual(values = c("WT" = "#4DAF4A", "KO" = "#E41A1C")) +
+  labs(
+    title = "Average ATAC-seq FRiP by condition",
+    y = "Mean FRiP",
+    x = NULL
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+

@@ -1,0 +1,6 @@
+Sample	TSS_Enrichment	TSS_Signal	Background_Signal
+cDC1_sample1	15.485	32.371	2.090
+cDC1_sample2	13.826	26.817	1.940
+cDC1_sample3	13.570	24.864	1.832
+cDC1_sample4	14.548	26.522	1.823
+cDC1_average	14.388	27.644	1.921

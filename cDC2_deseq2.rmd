@@ -1,0 +1,102 @@
+```{r}
+library(DESeq2)
+library(readr)
+```
+
+```{r}
+# Read data
+cDC2_counts <- read_tsv("GSE266583_cDC2_Raw_counts.tsv")
+coldata <- read.csv("cDC2_coldata.csv", row.names = 1)
+```
+
+```{r}
+# Prepare count matrix
+count_matrix <- as.matrix(cDC2_counts[, -1])
+rownames(count_matrix) <- cDC2_counts$gene_id
+count_matrix <- round(count_matrix)
+```
+
+```{r}
+# Ensure order matches
+count_matrix <- count_matrix[, rownames(coldata)]
+```
+
+```{r}
+# Verify
+all(colnames(count_matrix) == rownames(coldata))  # Should be TRUE
+```
+
+```{r}
+# Create DESeq2 object
+dds <- DESeqDataSetFromMatrix(
+  countData = count_matrix,
+  colData = coldata,
+  design = ~ condition
+)
+```
+
+```{r}
+# Filter low counts
+keep <- rowSums(counts(dds) >= 10) >= 2
+dds <- dds[keep, ]
+```
+
+```{r}
+# Run DESeq2
+dds <- DESeq(dds)
+```
+
+```{r}
+# Get results (KO vs WT)
+results_cDC2 <- results(dds, contrast = c("condition", "KO", "WT"))
+```
+
+```{r}
+resOrdered <- results_cDC2[order(results_cDC2$padj),]
+deseq2_res <- as_tibble(resOrdered, rownames='gene')
+deseq2_res
+```
+
+```{r}
+# Summary
+summary(results_cDC2)
+```
+
+```{r}
+sig_cDC2 <- deseq2_res %>% relocate(gene)
+sig_cDC2$significant <- "No"  # default: not significant
+sig_cDC2$significant[deseq2_res$padj < 0.05] <- "Yes"
+# Direction = based on padj < 0.05 only (no fold-change filter)
+sig_cDC2$direction <- "NotSig"
+sig_cDC2$direction[deseq2_res$padj < 0.05 & deseq2_res$log2FoldChange > 0] <- "Up"
+sig_cDC2$direction[deseq2_res$padj < 0.05 & deseq2_res$log2FoldChange < 0] <- "Down"
+
+sig_cDC2
+```
+
+```{r}
+cat("\n=== cDC2 Differential Expression Results ===\n")
+cat("Total significant genes (FDR < 0.05):", sum(sig_cDC2$significant == "Yes"), "\n")
+cat("Upregulated in KO:", sum(sig_cDC2$direction == "Up"), "\n")
+cat("Downregulated in KO:", sum(sig_cDC2$direction == "Down"), "\n")
+```
+
+
+```{r}
+# Save
+write.csv(sig_cDC2, "cDC2_DESeq2_significant.csv", row.names = FALSE)
+
+cat("cDC2 significant genes:", sum(sig_cDC2$significant == "Yes"), "\n")
+```
+
+```{r}
+# Check sample order in the count file
+colnames(cDC2_counts)[-1] 
+
+# Check coldata order
+rownames(coldata)  # Should match
+
+# Check conditions are assigned correctly
+coldata
+```
+
