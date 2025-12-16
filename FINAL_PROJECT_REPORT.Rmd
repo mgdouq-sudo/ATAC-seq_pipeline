@@ -202,7 +202,7 @@ The Fraction of Reads in Peaks (FRiP) is a fundamental quality metric that measu
 
 # Report how many differentially accessible regions your pipeline discovered in each of the two conditions.
 
-I have taken the values from Diffbind analyses results of cDC1 and cDC2.
+Note: I have taken the values from Diffbind analyses results of cDC1 and cDC2.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 diff_results <- data.frame(
@@ -281,6 +281,7 @@ enriched <- enrichr(gene_list_cDC2, dbs_to_use)
 # Plot top results
 plotEnrich(enriched$GO_Biological_Process_2025, showTerms = 20, numChar = 40, title = "GO BP - cDC2 Differential Peaks")
 ```
+
 # A few sentences describing what the enrichment reveals.
 
 Gene Ontology enrichment analysis of genes associated with differentially accessible regions in cDC2 cells revealed significant enrichment for developmental and signaling pathways. The top enriched biological processes included response to cytokine signaling (GO:0034097, p=0.0003), axonogenesis (GO:0007409, p=0.001), and axon guidance (GO:0007411, p=0.003). Additional enrichment was observed for intracellular signaling cassette (GO:0014767, p=0.0004) and Wnt signaling pathway (GO:0060070, p=0.003). These results suggest that HDAC1 deletion in cDC2 cells affects chromatin accessibility at regulatory regions controlling cell differentiation, neural development, and immune signaling pathways, consistent with the observed developmental defects in cDC2 differentiation.
@@ -324,11 +325,11 @@ plot(cDC2_matrix_heatmap)
 
 # Comment for Figure 6A&B:
 
-Figure 6A: cDC1 differential accessibility heatmap
+# Figure 6A: cDC1 differential accessibility heatmap
 
 ATAC-seq analysis of cDC1 cells revealed widespread changes in chromatin accessibility upon HDAC1 deletion. A total of 1,680 differentially accessible regions (DARs) were identified (p < 0.01), with the majority showing increased accessibility in the knockout condition. Heatmap and aggregate profile plots demonstrate strong enrichment of ATAC signal at regions gained in HDAC1-deficient cDC1s, while regions classified as lost display higher accessibility in wild-type samples. These patterns closely mirror those reported in the original study, supporting a role for HDAC1 in restraining chromatin accessibility in cDC1s.
 
-Figure 6B: cDC2 differential accessibility heatmap
+# Figure 6B: cDC2 differential accessibility heatmap
 
 In cDC2 cells, ATAC-seq identified 759 differentially accessible regions (p < 0.01), again with more regions gaining accessibility upon HDAC1 deletion than losing accessibility. The heatmaps show clear genotype-dependent accessibility differences, with gained regions exhibiting elevated ATAC signal in knockout samples and lost regions enriched in wild-type samples. Although fewer DARs were detected compared to cDC1s, the overall accessibility patterns and direction of change are consistent with those described in the original publication.
 
