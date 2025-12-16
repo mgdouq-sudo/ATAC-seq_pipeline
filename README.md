@@ -5,7 +5,7 @@ This repository contains a Nextflow-based ATAC-seq analysis pipeline for compari
 
 ## The pipeline performs:
 
-Raw FASTQ download from SRA
+Raw FASTQ download from EBI FTP server (SRA data)
 
 Quality control (FastQC, MultiQC)
 
