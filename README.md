@@ -3,6 +3,30 @@ Overview
 
 This repository contains a Nextflow-based ATAC-seq analysis pipeline for comparing chromatin accessibility between WT and KO conditions in cDC1 and cDC2 dendritic cells.
 
+## Project Introduction
+
+Dendritic cell (DC) progenitors undergo extensive transcriptional reprogramming during differentiation to
+generate distinct DC subsets, yet the contribution of chromatin accessibility to these transitions remains
+incompletely understood. In “The histone deacetylase HDAC1 controls dendritic cell development and anti-
+tumor immunity,” the authors demonstrate that HDAC1 plays a critical role in DC development by regulating
+epigenetic and transcriptional programs. Genetic deletion of HDAC1 selectively disrupts pDC and cDC2
+differentiation, while cDC1 development remains largely unaffected.
+
+Using ATAC-seq, the study shows that HDAC1 controls chromatin accessibility at key regulatory regions
+associated with transcription factors such as IRF4, IRF8, and SPIB, linking epigenetic regulation to DC
+lineage specification. These accessibility changes are accompanied by altered gene expression programs
+measured by RNA-seq, providing a mechanistic connection between chromatin state and transcriptional
+output.
+
+In this project, we reproduce a subset of the original study’s ATAC-seq and RNA-seq analyses, focusing
+specifically on the cDC1 and cDC2 populations. Differential chromatin accessibility was assessed using ATAC-
+seq, while differential gene expression was evaluated by reanalyzing the authors’ raw RNA-seq data with
+DESeq2. By reproducing figures that integrate chromatin accessibility and gene expression changes in cDC1
+and cDC2 cells, this analysis aims to evaluate how HDAC1-dependent chromatin remodeling contributes to
+subset-specific regulatory programs. The Fastq files of both ATAC-seq and RNA-seq were downloaded from
+the following GEO accession code (GSE266584). https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=G
+SE266584
+
 ## The pipeline performs:
 
 Raw FASTQ download from EBI FTP server (SRA data)
@@ -245,3 +269,7 @@ Modular design allows easy extension
 
 Mohammad Gharandouq
 M.S. Bioinformatics, Boston University
+
+## Reference
+
+De Sá Fernandes, C., Novoszel, P., Gastaldi, T., Krauß, D., Lang, M., Rica, R., Kutschat, A. P., Holcmann, M., Ellmeier, W., Seruggia, D., Strobl, H., & Sibilia, M. (2024). The histone deacetylase HDAC1 controls dendritic cell development and anti-tumor immunity. Cell reports, 43(6), 114308. https://doi.org/10.1016/j.celrep.2024.114308
