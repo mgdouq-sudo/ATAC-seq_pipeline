@@ -18,7 +18,7 @@ lineage specification. These accessibility changes are accompanied by altered ge
 measured by RNA-seq, providing a mechanistic connection between chromatin state and transcriptional
 output.
 
-In this project, we reproduce a subset of the original study’s ATAC-seq and RNA-seq analyses, focusing
+In this project, we reproduce a subset of the original study's ATAC-seq and RNA-seq analyses, focusing
 specifically on the cDC1 and cDC2 populations. Differential chromatin accessibility was assessed using ATAC-
 seq, while differential gene expression was evaluated by reanalyzing the authors’ raw RNA-seq data with
 DESeq2. By reproducing figures that integrate chromatin accessibility and gene expression changes in cDC1
